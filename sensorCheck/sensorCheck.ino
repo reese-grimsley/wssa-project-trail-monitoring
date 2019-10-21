@@ -31,10 +31,10 @@ void loop() {
   digitalWrite(trigger, LOW);
   delayMicroseconds(5);
   digitalWrite(trigger, HIGH);
-  delayMicroseconds(10);
+  delayMicroseconds(9);
   digitalWrite(trigger, LOW);
 
-  pinMode(echo, INPUT);
+//  pinMode(echo, INPUT);
   duration = pulseIn(echo, HIGH);
 
   cm = (duration/2) / 29.1;
@@ -46,5 +46,5 @@ void loop() {
   Serial.print("cm");
   Serial.println();
   
-  delay(250);
+  delay(100);
 }
