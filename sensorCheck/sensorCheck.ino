@@ -5,6 +5,8 @@
 #define trigger 6
 #define echo 12
 
+#define FUDGE_FACTOR 5
+
 long duration, cm, inches;
 
 void blink(uint32_t ms) {
@@ -40,11 +42,11 @@ void loop() {
   cm = (duration/2) / 29.1;
   inches = (duration/2) / 74;
 
-  Serial.print(inches);
-  Serial.print("in, ");
-  Serial.print(cm);
-  Serial.print("cm");
-  Serial.println();
-  
-  delay(100);
+  Serial.println(inches);
+//  Serial.print("in, ");
+//  Serial.print(cm);
+//  Serial.print("cm");
+
+  uint32_t delayVal = int(duration/1000) + FUDGE_FACTOR;
+  delay(100-delayVal);
 }
