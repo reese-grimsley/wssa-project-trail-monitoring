@@ -1,2 +1,2 @@
 eclipse.preferences.version=1
-libraries=[]
+libraries=[{"package"\:"adafruit","platform"\:"samd","library"\:"Adafruit Zero DMA Library"},{"package"\:"adafruit","platform"\:"samd","library"\:"Wire"},{"package"\:"adafruit","platform"\:"samd","library"\:"SPI"}]

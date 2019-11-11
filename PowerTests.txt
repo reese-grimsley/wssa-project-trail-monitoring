@@ -1,0 +1,12 @@
+Measurements
+On, board with sensor running consumes about 15-17 mA
+	- Fastest loop possible
+About 12-13mA when sensor is not running
+When in a low power state:
+	- 2.7mA with sensor disconnected
+	- 4.3mA with sensor connected
+	- Unsure if radio is connected in any way or not; haven't explicitly turned anything off
+	- IDLE2 is 5.3mA
+	- IDLE1 is 8.1mA
+	- IDLE0 is 9.4mA
+Sensor takes 1.5mA

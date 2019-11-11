@@ -62,6 +62,11 @@ float convertCM(uint32_t us_duration) {
 
 void loop() {
 
+	while(1) {
+
+		blink(1500);
+	}
+
   Serial.println("LOOP BEGIN");
 
   duration = readDistanceUS();
@@ -69,7 +74,7 @@ void loop() {
 
   d_delta = d_new - d_old;
 
-  Serial.printf("Outer loop - Distance read: %d\t Delta d: %d\r\n", d_new, d_delta);
+//  Serial.printf("Outer loop - Distance read: %d\t Delta d: %d\r\n", d_new, d_delta);
 
   if (d_delta < DISTANCE_TRIGGER_THRESHOLD)  { //distance has dropped by a substantial ammount
     //something has entered space of interest, stop for a moment
@@ -89,10 +94,10 @@ void loop() {
       d_delta = d_new - d_old;
 
 
-      Serial.printf("Inner loop - Distance read: %d\t Delta d: %d\r\n", d_new, d_delta);
+//      Serial.printf("Inner loop - Distance read: %d\t Delta d: %d\r\n", d_new, d_delta);
 
     } while (d_delta < DISTANCE_VARIATION_MAX); //consider differing speeds of people; walking, running, stopped
-    Serial.printf("New passerby counter; stayed in loop for %d samples\r\n", loop_count);
+//    Serial.printf("New passerby counter; stayed in loop for %d samples\r\n", loop_count);
     person_counter++;
 
 
@@ -104,7 +109,7 @@ void loop() {
 
   d_old = d_new;
 
-  Serial.printf("People counted: %d\r\n", person_counter);
+//  Serial.printf("People counted: %d\r\n", person_counter);
 
   delay(1000); //
 
