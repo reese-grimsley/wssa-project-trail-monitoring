@@ -1,5 +1,5 @@
 #include <Arduino.h>
-//#include "Serial.h"
+#include <Wire.h>
 //Need this in boards:
 //https://adafruit.github.io/arduino-board-index/package_adafruit_index.json
 //
@@ -11,6 +11,7 @@
 
 #define trigger 6
 #define echo 12
+
 
 #define FUDGE_FACTOR 5
 #define DISTANCE_TRIGGER_THRESHOLD -200
@@ -41,6 +42,28 @@ void setup() {
   d_old = 0;
 }
 
+
+void idle_state() {
+    // Set sleep mode to deep sleep
+  PM->SLEEP.reg = 0;   //puts proc into idle mode (once __WFI is called). Only 1 and 2 have effect.
+  SCB->SCR &= ~SCB_SCR_SLEEPDEEP_Msk; // mask corresponding to deep sleep enable
+
+//  //Disable USB port (to disconnect correctly from host
+  USB->DEVICE.CTRLA.reg &= ~USB_CTRLA_ENABLE;
+
+  SysTick->CTRL  &= ~SysTick_CTRL_TICKINT_Msk; //Thank god for internet forums: https://forum.arduino.cc/index.php?topic=601522.0
+
+  //Enter sleep mode and wait for interrupt (WFI)
+  delay(50);
+  __DSB(); //data sync barrier; all instructions complete before moving past instruction
+  __WFI(); //Wait for interrupt (or WFE to wait for event OR interrupt); puts processor in sleep state
+
+
+  SysTick->CTRL  |= SysTick_CTRL_TICKINT_Msk;
+//  //Re-enable USB (should never get there because no wakeup interrupt is configured)
+  USB->DEVICE.CTRLA.reg |= USB_CTRLA_ENABLE;
+}
+
 uint32_t readDistanceUS() {
   digitalWrite(trigger, LOW);
   delayMicroseconds(5);
@@ -62,10 +85,6 @@ float convertCM(uint32_t us_duration) {
 
 void loop() {
 
-	while(1) {
-
-		blink(1500);
-	}
 
   Serial.println("LOOP BEGIN");
 

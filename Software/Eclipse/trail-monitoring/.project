@@ -17,4 +17,10 @@
 		<nature>org.eclipse.cdt.core.ccnature</nature>
 		<nature>org.eclipse.cdt.arduino.core.arduinoNature</nature>
 	</natures>
+	<variableList>
+		<variable>
+			<name>FEATHER</name>
+			<value>file:/C:/Users/ReeseDev/.arduinocdt/packages/adafruit/hardware/samd/1.5.7</value>
+		</variable>
+	</variableList>
 </projectDescription>
