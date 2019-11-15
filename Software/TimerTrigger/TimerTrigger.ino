@@ -37,7 +37,7 @@ void blink(uint32_t ms) {
  * Puts processor in sleep mode. Requires interrupt to get out, so make sure those are configured if you want to call this function
  */
 void idle_state() {
-    // Set sleep mode to deep sleep
+    // Set sleep mode to deep sleep - 2 may be better.
   PM->SLEEP.reg = 1;   //puts proc into idle mode (once __WFI is called). Only 1 and 2 have effect.
   SCB->SCR &= ~SCB_SCR_SLEEPDEEP_Msk; // mask corresponding to deep sleep enable
 
@@ -78,6 +78,7 @@ float convertCM(uint32_t us_duration) {
 
 void setupTriggerTimerCC() {
   Serial.println("Set Timer values");
+  
   uint32_t compareValueWait = (uint32_t) CPU_HZ *0.1 / TIMER_TRIGGER_PRESCALE; //set timer for 100ms
   uint32_t compareValueTrig = (uint32_t) CPU_HZ * 1E-5 / TIMER_TRIGGER_PRESCALE; //set a 10us pulse using a 48MHz base clock (APB)
 
@@ -88,24 +89,29 @@ void setupTriggerTimerCC() {
 
   REG_TC3_COUNT32_COUNT = 16;
   TC->COUNT.reg = map(TC->COUNT.reg, 0, TC->CC[0].reg, 0, compareValueWait);
+  
   TC->CC[0].reg = compareValueWait; //set compare register; should actually be the TOP value
   TC->CC[1].reg = compareValueTrig; //set compare register
+  
   while (TC->STATUS.bit.SYNCBUSY == 1);
 
   TC3->COUNT32.CC[0].reg = 234;
+  
   while (TC->STATUS.bit.SYNCBUSY == 1);
-  Serial.println(REG_TC3_COUNT32_COUNT);
+  //Serial.println(REG_TC3_COUNT32_COUNT);
 
   while (TC->STATUS.bit.SYNCBUSY == 1);
 
 }
 
 void setTriggerTimer() {
+  TcCount32* TC = (TcCount32*) TC4;
+  
   REG_PM_APBCMASK |= PM_APBCMASK_TC4;
-  REG_GCLK_CLKCTRL = (uint16_t) (GCLK_CLKCTRL_CLKEN | GCLK_CLKCTRL_GEN_GCLK0 | GCLK_CLKCTRL_ID_TC4_TC5) ;
+  REG_GCLK_CLKCTRL = (uint16_t) (GCLK_CLKCTRL_CLKEN | GCLK_CLKCTRL_GEN_GCLK0 | GCLK_CLKCTRL_ID_TC4_TC5);
+  
   while ( GCLK->STATUS.bit.SYNCBUSY == 1 ); // wait for sync
 
-  TcCount32* TC = (TcCount32*) TC4;
   TC->CTRLA.reg &= ~TC_CTRLA_ENABLE; //disable timer so we can make changes
   while (TC->STATUS.bit.SYNCBUSY == 1); // wait for sync
 
@@ -130,7 +136,6 @@ void setup() {
   Serial.println("Serial started");
 #endif
 
-
   pinMode(LED, OUTPUT);
   digitalWrite(LED, LOW);
 
@@ -141,7 +146,6 @@ void setup() {
 
   Serial.println("Configure Timer");
   setTriggerTimer();
-
 }
 
 void loop() {
@@ -183,15 +187,12 @@ void loop() {
       //compute difference
       d_delta = d_new - d_old;
 
-
       //      Serial.printf("Inner loop - Distance read: %d\t Delta d: %d\r\n", d_new, d_delta);
 
     } while (d_delta < DISTANCE_VARIATION_MAX); //consider differing speeds of people; walking, running, stopped
 
     //    Serial.printf("New passerby counter; stayed in loop for %d samples\r\n", loop_count);
     person_counter++;
-
-
   }
   else {
     //anything to do otherwise?
