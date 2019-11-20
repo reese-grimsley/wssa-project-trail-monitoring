@@ -1,4 +1,4 @@
-//Need this in boards:
+ //Need this in boards:
 //https://adafruit.github.io/arduino-board-index/package_adafruit_index.json
 //
 //    REG_TC4_READREQ |= 0; //example for writing/reading directly from registers REG_$peripheral-name$_$register-name$
@@ -38,7 +38,7 @@ void blink(uint32_t ms) {
  */
 void idle_state() {
     // Set sleep mode to deep sleep - 2 may be better.
-  PM->SLEEP.reg = 1;   //puts proc into idle mode (once __WFI is called). Only 1 and 2 have effect.
+  PM->SLEEP.reg = 2;   //puts proc into idle mode (once __WFI is called). Only 1 and 2 have effect.
   SCB->SCR &= ~SCB_SCR_SLEEPDEEP_Msk; // mask corresponding to deep sleep enable
 
 //  //Disable USB port (to disconnect correctly from host
@@ -79,7 +79,7 @@ float convertCM(uint32_t us_duration) {
 void setupTriggerTimerCC() {
   Serial.println("Set Timer values");
   
-  uint32_t compareValueWait = (uint32_t) CPU_HZ *0.1 / TIMER_TRIGGER_PRESCALE; //set timer for 100ms
+  uint32_t compareValueWait = (uint32_t) CPU_HZ * 1 / TIMER_TRIGGER_PRESCALE; //set timer for 100ms
   uint32_t compareValueTrig = (uint32_t) CPU_HZ * 1E-5 / TIMER_TRIGGER_PRESCALE; //set a 10us pulse using a 48MHz base clock (APB)
 
   Serial.println(compareValueWait);
@@ -92,20 +92,16 @@ void setupTriggerTimerCC() {
   
   TC->CC[0].reg = compareValueWait; //set compare register; should actually be the TOP value
   TC->CC[1].reg = compareValueTrig; //set compare register
-  
-  while (TC->STATUS.bit.SYNCBUSY == 1);
-
-  TC3->COUNT32.CC[0].reg = 234;
-  
-  while (TC->STATUS.bit.SYNCBUSY == 1);
-  //Serial.println(REG_TC3_COUNT32_COUNT);
-
   while (TC->STATUS.bit.SYNCBUSY == 1);
 
 }
 
 void setTriggerTimer() {
   TcCount32* TC = (TcCount32*) TC4;
+
+  // Configure pin for interrupt. Use TC4 WO1 and port 16 for PB09
+  PORT->Group[g_APinDescription[16].ulPort].PINCFG[g_APinDescription[16].ulPin].bit.PMUXEN = 1;
+  PORT->Group[g_APinDescription[16].ulPort].PMUX[g_APinDescription[16].ulPin >> 1].reg = PORT_PMUX_PMUXO_E;
   
   REG_PM_APBCMASK |= PM_APBCMASK_TC4;
   REG_GCLK_CLKCTRL = (uint16_t) (GCLK_CLKCTRL_CLKEN | GCLK_CLKCTRL_GEN_GCLK0 | GCLK_CLKCTRL_ID_TC4_TC5);
@@ -115,7 +111,7 @@ void setTriggerTimer() {
   TC->CTRLA.reg &= ~TC_CTRLA_ENABLE; //disable timer so we can make changes
   while (TC->STATUS.bit.SYNCBUSY == 1); // wait for sync
 
-   TC->CTRLA.reg |= TC_CTRLA_MODE_COUNT32 | TC_CTRLA_WAVEGEN_NPWM;// | TC_CTRLA_RUNSTDBY;
+   TC->CTRLA.reg |= TC_CTRLA_MODE_COUNT32 | TC_CTRLA_WAVEGEN_MPWM; // | TC_CTRLA_RUNSTDBY;
 //   TC->CTRLA.reg |= TC_CTRLA_MODE_COUNT32 | TC_CTRLA_WAVEGEN_NPWM | TC_CTRLA_RUNSTDBY;
 
    while (TC->STATUS.bit.SYNCBUSY == 1); // wait for sync
@@ -124,6 +120,8 @@ void setTriggerTimer() {
 
    TC->CTRLA.reg |= TC_CTRLA_ENABLE;
    while (TC->STATUS.bit.SYNCBUSY == 1); // wait for sync
+
+   Serial.println("Did we get to the end of TriggerTimer");
 
    //need to configure pin to be driven by this
 }
@@ -139,21 +137,25 @@ void setup() {
   pinMode(LED, OUTPUT);
   digitalWrite(LED, LOW);
 
-  pinMode(trigger, OUTPUT);
-  pinMode(echo, INPUT);
+  //pinMode(trigger, OUTPUT);
+  //pinMode(echo, INPUT);
 
   d_old = 0;
+
+  Serial.println(digitalPinHasPWM(8));
+  Serial.println(digitalPinHasPWM(12));
 
   Serial.println("Configure Timer");
   setTriggerTimer();
 }
 
 void loop() {
-
   #ifdef DEBUG_PRINT
   Serial.println("LOOP BEGIN");
 
-  TcCount32* TC = (TcCount32*) TC3;
+  idle_state();
+
+  TcCount32* TC = (TcCount32*) TC4;
   Serial.println(TC->COUNT.reg);
   Serial.println(TC->CC[0].reg);
   Serial.println(TC->CC[1].reg);
@@ -165,7 +167,7 @@ void loop() {
 
   d_delta = d_new - d_old;
 
-  //  Serial.printf("Outer loop - Distance read: %d\t Delta d: %d\r\n", d_new, d_delta);
+  Serial.printf("Outer loop - Distance read: %d\t Delta d: %d\r\n", d_new, d_delta);
 
   if (d_delta < DISTANCE_TRIGGER_THRESHOLD)  { //distance has dropped by a substantial ammount
     //something has entered space of interest, stop for a moment
@@ -187,11 +189,11 @@ void loop() {
       //compute difference
       d_delta = d_new - d_old;
 
-      //      Serial.printf("Inner loop - Distance read: %d\t Delta d: %d\r\n", d_new, d_delta);
+      Serial.printf("Inner loop - Distance read: %d\t Delta d: %d\r\n", d_new, d_delta);
 
     } while (d_delta < DISTANCE_VARIATION_MAX); //consider differing speeds of people; walking, running, stopped
 
-    //    Serial.printf("New passerby counter; stayed in loop for %d samples\r\n", loop_count);
+    Serial.printf("New passerby counter; stayed in loop for %d samples\r\n", loop_count);
     person_counter++;
   }
   else {
@@ -201,7 +203,7 @@ void loop() {
 
   d_old = d_new;
 
-  //  Serial.printf("People counted: %d\r\n", person_counter);
+  Serial.printf("People counted: %d\r\n", person_counter);
 
   blink(1000); //
 
