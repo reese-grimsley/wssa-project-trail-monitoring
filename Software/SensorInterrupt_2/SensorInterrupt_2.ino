@@ -109,7 +109,9 @@ void setupDistanceTimer() {
   Serial.println("Configure PWM read TCC peripheral");
   
   REG_PM_APBCMASK |= PM_APBCMASK_TCC0;
-  REG_GCLK_CLKCTRL |= (uint16_t) (GCLK_CLKCTRL_CLKEN | GCLK_CLKCTRL_GEN_GCLK0 | GCLK_CLKCTRL_ID_TCC0_TCC1);
+  GCLK->CLKCTRL.reg = GCLK_CLKCTRL_ID(TCC0_GCLK_ID) |
+              GCLK_CLKCTRL_CLKEN |
+              GCLK_CLKCTRL_GEN(0);
   while ( GCLK->STATUS.bit.SYNCBUSY == 1 ); // wait for sync
 
   TCC0->CTRLA.reg = TCC_CTRLA_SWRST;
@@ -145,7 +147,6 @@ void setTriggerTimerCC(uint32_t wait) {
   TC->CC[0].reg = compareValueWait; //set compare register; should actually be the TOP value
   TC->CC[1].reg = compareValueTrig; //set compare register
   while (TC->STATUS.bit.SYNCBUSY == 1);
-
 }
 
 void setTriggerTimer() {
@@ -178,6 +179,64 @@ void setTriggerTimer() {
    //need to configure pin to be driven by this
 }
 
+/* Sense:
+   None, Rise, Fall, Both, High, Low
+   0x0   0x1   0x2   0x3   0x4   0x5
+*/
+void config_eic_channel(int ch, int sense, bool filt) {
+  // Config channel
+  EIC->CONFIG[ch / 8].reg &= ~(0xF << 4 * (ch % 8));
+  EIC->CONFIG[ch / 8].reg |= (0xF & ((filt ? 0x8 : 0) | (0x7 & sense))) << 4 * (ch % 8);
+  // No wake-up
+  EIC->WAKEUP.reg &= ~(1 << ch);
+  // No interrupt
+  EIC->INTENCLR.reg |= 1 << ch;
+  // Generate Event
+  EIC->EVCTRL.reg |= 1 << ch;
+}
+
+void config_eic() {
+  PM->APBAMASK.reg |= PM_APBAMASK_EIC;
+  GCLK->CLKCTRL.reg = GCLK_CLKCTRL_ID(EIC_GCLK_ID) |
+                      GCLK_CLKCTRL_CLKEN |
+                      GCLK_CLKCTRL_GEN(0);
+  EIC->CTRL.reg = EIC_CTRL_SWRST;
+  while (EIC->CTRL.bit.SWRST && EIC->STATUS.bit.SYNCBUSY);
+
+  // TODO: May need to change channel number (11)
+  // Set to 1 for Rising Action
+  config_eic_channel(11, 1, false);
+
+  // Do we need another for Falling?
+  //config_eic_channel(12, 2, false);
+
+  EIC->CTRL.bit.ENABLE = 1;
+  while (EIC->STATUS.bit.SYNCBUSY);
+}
+
+void config_evsys() {
+  PM->APBCMASK.reg |= PM_APBCMASK_EVSYS;
+  GCLK->CLKCTRL.reg = GCLK_CLKCTRL_ID(EVSYS_GCLK_ID_0) |
+                      GCLK_CLKCTRL_CLKEN |
+                      GCLK_CLKCTRL_GEN(0);
+  while (GCLK->STATUS.bit.SYNCBUSY);
+
+  EVSYS->CTRL.bit.SWRST = 1;
+  while (EVSYS->CTRL.bit.SWRST);
+
+  // Event receiver
+  EVSYS->USER.reg = EVSYS_USER_CHANNEL(1) | // Set channel n-1
+                    EVSYS_USER_USER(EVSYS_ID_USER_TCC1_EV_1); // Match/Capture 1 on TCC1
+  // Event channel
+  EVSYS->CHANNEL.reg = EVSYS_CHANNEL_CHANNEL(0) | // Set channel n
+                       EVSYS_CHANNEL_PATH_ASYNCHRONOUS |
+                       EVSYS_CHANNEL_EVGEN(EVSYS_ID_GEN_EIC_EXTINT_11) |
+                       EVSYS_CHANNEL_EDGSEL_BOTH_EDGES; // Detect both edges
+  // Wait channel to be ready
+  while (!EVSYS->CHSTATUS.bit.USRRDY0);
+  // EVSYS is always enabled
+}
+
 void setup() {
   // Setup Serial port
 #ifdef DEBUG_PRINT
@@ -197,13 +256,22 @@ void setup() {
   Serial.println("Configure Timer");
   setTriggerTimer();
   setupDistanceTimer();
+
+  Serial.println("Configure EIC, Events, and GPIO");
+  Serial.println(EIC->CTRL.bit.ENABLE);
+  Serial.println(EVSYS->USER.reg);
+
+  config_eic();
+  config_evsys();
+  Serial.println(EIC->CTRL.bit.ENABLE);
+  Serial.println(EVSYS->USER.reg);
 }
 
 void loop() {
   #ifdef DEBUG_PRINT
   Serial.println("LOOP BEGIN");
 
-  idle_state();
+  //idle_state();
 
   TcCount32* TC = (TcCount32*) TC4;
   Serial.println(TC->COUNT.reg);
