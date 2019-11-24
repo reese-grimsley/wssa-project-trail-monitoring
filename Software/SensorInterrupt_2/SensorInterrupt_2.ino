@@ -152,7 +152,7 @@ void setTriggerTimerCC(uint32_t wait) {
 void setTriggerTimer() {
   TcCount32* TC = (TcCount32*) TC4;
 
-  // Configure pin for interrupt. Use TC4 WO1 and port 16 for PB09
+  // Configure pin for interrupt. Use TC4 WO1 and port 16 for PB09, pin 8 on processor, pin 16 Arduino
   PORT->Group[g_APinDescription[16].ulPort].PINCFG[g_APinDescription[16].ulPin].bit.PMUXEN = 1;
   PORT->Group[g_APinDescription[16].ulPort].PMUX[g_APinDescription[16].ulPin >> 1].reg = PORT_PMUX_PMUXO_E;
   
@@ -205,10 +205,10 @@ void config_eic() {
 
   // TODO: May need to change channel number (11)
   // Set to 1 for Rising Action
-  config_eic_channel(11, 1, false);
+  config_eic_channel(0, 1, false);
 
   // Do we need another for Falling?
-  //config_eic_channel(12, 2, false);
+  config_eic_channel(1, 2, false);
 
   EIC->CTRL.bit.ENABLE = 1;
   while (EIC->STATUS.bit.SYNCBUSY);
@@ -226,14 +226,27 @@ void config_evsys() {
 
   // Event receiver
   EVSYS->USER.reg = EVSYS_USER_CHANNEL(1) | // Set channel n-1
-                    EVSYS_USER_USER(EVSYS_ID_USER_TCC1_EV_1); // Match/Capture 1 on TCC1
+                    EVSYS_USER_USER(EVSYS_ID_USER_TCC0_EV_0); // Match/Capture 1 on TCC0
+  
   // Event channel
   EVSYS->CHANNEL.reg = EVSYS_CHANNEL_CHANNEL(0) | // Set channel n
                        EVSYS_CHANNEL_PATH_ASYNCHRONOUS |
                        EVSYS_CHANNEL_EVGEN(EVSYS_ID_GEN_EIC_EXTINT_11) |
-                       EVSYS_CHANNEL_EDGSEL_BOTH_EDGES; // Detect both edges
+                       EVSYS_CHANNEL_EDGSEL_RISING_EDGE; // Detect both edges
   // Wait channel to be ready
   while (!EVSYS->CHSTATUS.bit.USRRDY0);
+
+  // Event receiver
+  EVSYS->USER.reg = EVSYS_USER_CHANNEL(2) | // Set channel n-1
+                    EVSYS_USER_USER(EVSYS_ID_USER_TCC0_EV_0); // Match/Capture 1 on TCC0
+  
+  // Event channel
+  EVSYS->CHANNEL.reg = EVSYS_CHANNEL_CHANNEL(1) | // Set channel n
+                       EVSYS_CHANNEL_PATH_ASYNCHRONOUS |
+                       EVSYS_CHANNEL_EVGEN(EVSYS_ID_GEN_EIC_EXTINT_11) |
+                       EVSYS_CHANNEL_EDGSEL_FALLING_EDGE; // Detect both edges
+  // Wait channel to be ready
+  while (!EVSYS->CHSTATUS.bit.USRRDY1);
   // EVSYS is always enabled
 }
 
@@ -257,6 +270,8 @@ void setup() {
   setTriggerTimer();
   setupDistanceTimer();
 
+  attachInterrupt(digitalPinToInterrupt(14), ultraSonicISR, FALLING);
+
   Serial.println("Configure EIC, Events, and GPIO");
   Serial.println(EIC->CTRL.bit.ENABLE);
   Serial.println(EVSYS->USER.reg);
@@ -265,6 +280,9 @@ void setup() {
   config_evsys();
   Serial.println(EIC->CTRL.bit.ENABLE);
   Serial.println(EVSYS->USER.reg);
+
+  PORT->Group[0].PINCFG[14].reg |= PORT_PINCFG_PMUXEN;
+  PORT->Group[0].PMUX[14>>1].bit.PMUXE = PORT_PMUX_PMUXE_A;
 }
 
 void loop() {
