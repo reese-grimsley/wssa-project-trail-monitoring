@@ -129,23 +129,6 @@ float convertCM(uint32_t us_duration) {
 
 void setupDistanceTimer() {
   Serial.println("Configure PWM read TCC peripheral");
-  
-//  REG_PM_APBCMASK |= PM_APBCMASK_TCC0;
-//  GCLK->CLKCTRL.reg = GCLK_CLKCTRL_ID(TCC0_GCLK_ID) |
-//              GCLK_CLKCTRL_CLKEN |
-//              GCLK_CLKCTRL_GEN(0);
-//  while ( GCLK->STATUS.bit.SYNCBUSY == 1 ); // wait for sync
-//
-//  TCC0->CTRLA.reg = TCC_CTRLA_SWRST;
-//  while(TCC0->SYNCBUSY.bit.SWRST);
-//
-//  TCC0->CTRLA.reg |= TCC_CTRLA_CPTEN0 | TCC_CTRLA_RUNSTDBY;
-//  TCC0->EVCTRL.reg |= TCC_EVCTRL_MCEI0 | TCC_EVCTRL_TCEI0 | TCC_EVCTRL_TCEI1 |
-//            TCC_EVCTRL_EVACT0_RETRIGGER | TCC_EVCTRL_EVACT1_STOP;
-//
-//  while(TCC0->SYNCBUSY.reg);
-//  TCC0->CTRLA.reg |= TCC_CTRLA_ENABLE;
-//  while(TCC0->SYNCBUSY.reg);
   REG_PM_APBCMASK |= PM_APBCMASK_TC3;
   REG_GCLK_CLKCTRL = (uint16_t) (GCLK_CLKCTRL_CLKEN | GCLK_CLKCTRL_GEN_GCLK0 | GCLK_CLKCTRL_ID_TCC2_TC3);
   
@@ -155,10 +138,9 @@ void setupDistanceTimer() {
   TC->CTRLA.reg &= ~TC_CTRLA_ENABLE; //disable timer so we can make changes
   while (TC->STATUS.bit.SYNCBUSY == 1); // wait for sync
 
-   TC->CTRLA.reg |= TC_CTRLA_ENABLE;
-   while (TC->STATUS.bit.SYNCBUSY == 1); // wait for sync
-
-
+  TC->CTRLA.reg |= TC_CTRLA_ENABLE;
+  while (TC->STATUS.bit.SYNCBUSY == 1); // wait for sync
+   
   Serial.println("Done configuring Timer");
 }
 
@@ -213,92 +195,6 @@ void setTriggerTimer() {
    //need to configure pin to be driven by this
 }
 
-/* Sense:
-   None, Rise, Fall, Both, High, Low
-   0x0   0x1   0x2   0x3   0x4   0x5
-*/
-void config_eic_channel(int ch, int sense, bool filt) {
-//  // Config channel
-
-  EIC->CONFIG[ch / 8].reg &= ~(0xF << (4 * (ch % 8))); //reset all bits in channel position
-  EIC->CONFIG[ch / 8].reg |= (0xF & ((filt ? 0x8 : 0) | (0x7 & sense))) << (4 * (ch % 8));
-  // No wake-up
-  EIC->WAKEUP.reg &= ~(1 << ch);
-  // Clear interrupt
-  EIC->INTENCLR.reg |= 1 << ch;
-  // Generate Event
-  EIC->EVCTRL.reg |= 1 << ch;
-}
-
-void config_eic() {
-  PM->APBAMASK.reg |= PM_APBAMASK_EIC;
-  GCLK->CLKCTRL.reg = GCLK_CLKCTRL_ID(EIC_GCLK_ID) |
-                      GCLK_CLKCTRL_CLKEN |
-                      GCLK_CLKCTRL_GEN(0);
-
-
-  //Configure pin 3, PA02 (so even), arduino 14 as EXTINT[2] (peripheral A)
-  PORT->Group[0].PINCFG[14].reg |= PORT_PINCFG_PMUXEN;
-  PORT->Group[0].PMUX[14>>1].bit.PMUXE = PORT_PMUX_PMUXE_A;
-                      
-  EIC->CTRL.reg = EIC_CTRL_SWRST;
-  while (EIC->CTRL.bit.SWRST && EIC->STATUS.bit.SYNCBUSY);
-
-  // TODO: May need to change channel number (11)?
-  // Set to 3 for rising and falling; event system will separate the two later
-  //  Setting channel number as 2 for EXTINT2
-  config_eic_channel(2, 3, false); 
-
-//  // Do we need another for Falling?
-//  config_eic_channel(1, 2, false);
-
-  EIC->CTRL.bit.ENABLE = 1;
-  while (EIC->STATUS.bit.SYNCBUSY);
-
-
-  while(1) {
-    if (EIC->INTFLAG.reg & 0x4) {
-      Serial.println(EIC->INTFLAG.reg);
-    }
-  }
-}
-
-void config_evsys() {
-  PM->APBCMASK.reg |= PM_APBCMASK_EVSYS;
-  GCLK->CLKCTRL.reg = GCLK_CLKCTRL_ID(EVSYS_GCLK_ID_0) |
-                      GCLK_CLKCTRL_CLKEN |
-                      GCLK_CLKCTRL_GEN(0);
-  while (GCLK->STATUS.bit.SYNCBUSY);
-
-  EVSYS->CTRL.bit.SWRST = 1;
-  while (EVSYS->CTRL.bit.SWRST);
-
-  // Event receiver
-  EVSYS->USER.reg = EVSYS_USER_CHANNEL(1) | // Set channel n-1
-                    EVSYS_USER_USER(EVSYS_ID_USER_TCC0_EV_0); // Match/Capture 1 on TCC0
-  
-  // Event channel
-  EVSYS->CHANNEL.reg = EVSYS_CHANNEL_CHANNEL(0) | // Set channel n
-                       EVSYS_CHANNEL_PATH_ASYNCHRONOUS |
-                       EVSYS_CHANNEL_EVGEN(EVSYS_ID_GEN_EIC_EXTINT_11) |
-                       EVSYS_CHANNEL_EDGSEL_RISING_EDGE; // Detect both edges
-  // Wait channel to be ready
-  while (!EVSYS->CHSTATUS.bit.USRRDY0);
-
-  // Event receiver
-  EVSYS->USER.reg = EVSYS_USER_CHANNEL(2) | // Set channel n-1
-                    EVSYS_USER_USER(EVSYS_ID_USER_TCC0_EV_0); // Match/Capture 1 on TCC0
-  
-  // Event channel
-  EVSYS->CHANNEL.reg = EVSYS_CHANNEL_CHANNEL(1) | // Set channel n
-                       EVSYS_CHANNEL_PATH_ASYNCHRONOUS |
-                       EVSYS_CHANNEL_EVGEN(EVSYS_ID_GEN_EIC_EXTINT_11) |
-                       EVSYS_CHANNEL_EDGSEL_FALLING_EDGE; // Detect both edges
-  // Wait channel to be ready
-  while (!EVSYS->CHSTATUS.bit.USRRDY1);
-  // EVSYS is always enabled
-}
-
 void setup() {
   // Setup Serial port
 #ifdef DEBUG_PRINT
@@ -310,28 +206,11 @@ void setup() {
   pinMode(LED, OUTPUT);
   digitalWrite(LED, LOW);
 
-  //pinMode(trigger, OUTPUT);
-  //pinMode(echo, INPUT);
-
-  d_old = 0;
-
   Serial.println("Configure Timer");
   setTriggerTimer();
   setupDistanceTimer();
 
   attachInterrupt(digitalPinToInterrupt(14), ultraSonicISR, CHANGE);
-//
-//  
-//
-//  Serial.println("Configure EIC, Events, and GPIO");
-//  Serial.println(EIC->CTRL.bit.ENABLE);
-//  Serial.println(EVSYS->USER.reg);
-//
-//  config_eic();
-//  config_evsys();
-//  Serial.println(EIC->CTRL.bit.ENABLE);
-//  Serial.println(EVSYS->USER.reg);
-//
 
 }
 
