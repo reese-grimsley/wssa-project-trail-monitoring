@@ -17,9 +17,9 @@
 
 //define thresholds for finite state machine transitions
 #define FUDGE_FACTOR 5
-#define DISTANCE_THRESHOLD_SLOW -100 //In inches. negative means distance became shorter between samples
-#define DISTANCE_THRESHOLD_FAST -50	 
-#define DISTANCE_THRESHOLD_LEAVE 100
+#define DISTANCE_THRESHOLD_SLOW -25 //In inches. negative means distance became shorter between samples
+#define DISTANCE_THRESHOLD_FAST -25	 
+#define DISTANCE_THRESHOLD_LEAVE 25
 #define FAST_COUNT_MAX 200 // If sampling fast for too long, do a state reset
 #define FSM_RESET_DELAY_MS 5000
 
@@ -351,21 +351,8 @@ static bool isSensorReading = false;   //sensor is taking a measurement right no
 
 void loop() {
 
-
-//  Serial1.println("LOOP");
-
   idle_state();
-  
-//  delayMicroseconds(1);
-//  Serial1.println("Back in Loop");
-//  diffUS = ((newUS-oldUS)); //% 1<<16) / (CPU_HZ / TIMER_ECHO_PRESCALE * 1E6); //calculate microseconds gap between them
-//  Serial1.print("Ec: "); 
-////  Serial1.print(diffUS);
-//  diffUS = diffUS < 0 ? diffUS + 65536 : diffUS; //modulo... remainder (%) doesn't correct negative values
-//  Serial1.print("\t");  Serial1.print(diffUS);
-//  diffUS /= (CPU_HZ / TIMER_ECHO_PRESCALE / 1E6); //calc microseconds
-//  Serial1.print("\t");  Serial1.println(diffUS);
-//  
+
   if (digitalRead(ECHO_RISE)) {
     Serial1.println("R");
     //oldUS = newUS;
@@ -374,26 +361,20 @@ void loop() {
   else {
     Serial1.println("F\t");
   	isSensorReading = false;
-    diffUS = (newUS-oldUS); //% 1<<16) / (CPU_HZ / TIMER_ECHO_PRESCALE * 1E6); //calculate microseconds gap between them
-
-//    Serial1.print("Echo calc: "); 
-//    Serial1.print(diffUS);
-    diffUS = diffUS < 0 ? diffUS + 65536 : diffUS;
-//    Serial1.print("\t");  Serial1.print(diffUS);
-    diffUS /= (CPU_HZ / TIMER_ECHO_PRESCALE / 1E6); //calc microseconds
+    
+    //calc microseconds
+    diffUS = (newUS-oldUS);
+    diffUS = diffUS < 0 ? diffUS + 65536 : diffUS; //do diff modulo 2^16
+    diffUS /= (CPU_HZ / TIMER_ECHO_PRESCALE / 1E6); //convert timer ticks to microseconds
     Serial1.println(diffUS);
-    if (diffUS < -1000000) {
-      Serial1.println("Error!");
-      Serial1.print("rising: "); Serial1.println(oldUS);
-      Serial1.print("falling: "); Serial1.println(newUS);
-      while(1);
-    }
+
     inches = convertInches(diffUS);
     Serial1.print("In: "); Serial1.println(inches);
     former_distance = distance;
     distance = inches;
   	fsm(distance - former_distance);
 
+    Serial1.print("PEOPLE COUNT:\t\t:"); Serial1.println(person_counter);
   }
 
 }
