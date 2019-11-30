@@ -27,6 +27,9 @@
 #define SLOW_SAMPLE_DELAY CPU_HZ/TIMER_TRIGGER_PRESCALE
 #define US_THRESHOLD CPU_HZ*50/1000 //~50ms
 
+enum State {
+  SLOW, FAST_BASE, FAST_1, FAST_2
+};
 
 int32_t duration, cm, inches, d_delta, d_new, d_old = 0;
 int32_t person_counter = 0;
@@ -36,43 +39,13 @@ uint8_t fast_sample_flag = 0;
 
 
 uint16_t diffUS, newUS=0, oldUS=0;
+bool isActive = false;
+
 void ultraSonicISR(void) {
   
   Serial.println("ISR enter");
   newUS = ((TcCount16*)TC3)->COUNT.reg;
   Serial.print("Timer reads: "); Serial.println(newUS);
-  if (digitalRead(ECHO)) {
-    oldUS = newUS;
-  }
-  else {
-    diffUS = newUS-oldUS / (CPU_HZ / TIMER_ECHO_PRESCALE * 1E6); //calculate microseconds gap between them
-    Serial.print("Echo duration: "); Serial.println(newUS);
-    inches = convertInches(diffUS);
-    Serial.print("Distance read: "); Serial.println(inches);
-
-//implement state machine in loop
-    if (inches < 400) {
-      setTriggerTimerCC(FAST_SAMPLE_DELAY);
-    } else {
-      setTriggerTimerCC(SLOW_SAMPLE_DELAY);
-    }
-  }
-
-    
-//  if (fast_sample_flag){
-//    if (timer_value > US_THRESHOLD)
-//      fast_sample_flag = 0;
-//      setTriggerTimerCC(SLOW_SAMPLE_DELAY);
-//      person_counter++; //can make more complex; this will cause many duplicates
-//  }
-//
-//  else {
-//    if (timer_value < US_THRESHOLD) {
-//      fast_sample_flag = 1;
-//      setTriggerTimerCC(FAST_SAMPLE_DELAY);
-//    }
-//  }
-
   
   Serial.println("ISR end");
 }
@@ -299,6 +272,45 @@ void config_evsys() {
   // EVSYS is always enabled
 }
 
+void fsm() {
+  uint8_t state;
+  if (digitalRead(ECHO)) {
+    isActive = true;
+    oldUS = newUS;
+  }
+  else {
+    isActive = false;
+    diffUS = (newUS-oldUS) / (CPU_HZ / TIMER_ECHO_PRESCALE * 1E6); //calculate microseconds gap between them
+    Serial.print("Echo duration: "); Serial.println(newUS);
+    inches = convertInches(diffUS);
+    Serial.print("Distance read: "); Serial.println(inches);
+
+//implement state machine in loop
+    if (inches < 400) {
+      setTriggerTimerCC(FAST_SAMPLE_DELAY);
+    } else {
+      setTriggerTimerCC(SLOW_SAMPLE_DELAY);
+    }
+  }
+
+    
+//  if (fast_sample_flag){
+//    if (timer_value > US_THRESHOLD)
+//      fast_sample_flag = 0;
+//      setTriggerTimerCC(SLOW_SAMPLE_DELAY);
+//      person_counter++; //can make more complex; this will cause many duplicates
+//  }
+//
+//  else {
+//    if (timer_value < US_THRESHOLD) {
+//      fast_sample_flag = 1;
+//      setTriggerTimerCC(FAST_SAMPLE_DELAY);
+//    }
+//  }
+
+  
+}
+
 void setup() {
   // Setup Serial port
 #ifdef DEBUG_PRINT
@@ -320,18 +332,6 @@ void setup() {
   setupDistanceTimer();
 
   attachInterrupt(digitalPinToInterrupt(14), ultraSonicISR, CHANGE);
-//
-//  
-//
-//  Serial.println("Configure EIC, Events, and GPIO");
-//  Serial.println(EIC->CTRL.bit.ENABLE);
-//  Serial.println(EVSYS->USER.reg);
-//
-//  config_eic();
-//  config_evsys();
-//  Serial.println(EIC->CTRL.bit.ENABLE);
-//  Serial.println(EVSYS->USER.reg);
-//
 
 }
 

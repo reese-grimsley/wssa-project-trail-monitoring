@@ -4,77 +4,65 @@
 //    REG_TC4_READREQ |= 0; //example for writing/reading directly from registers REG_$peripheral-name$_$register-name$
 
 #if defined(ARDUINO_SAMD_ZERO)
-#define Serial SERIAL_PORT_USBVIRTUAL
+#define Serial Serial1_PORT_USBVIRTUAL
 #endif
 
 #define DEBUG_PRINT
 
 //pin defines
 #define trigger 16
-#define ECHO 14 //TBD
+#define ECHO_RISE 10
+#define ECHO_FALL 11
 #define LED 13
 
-//define sensor counting things
+//define thresholds for finite state machine transitions
 #define FUDGE_FACTOR 5
-#define DISTANCE_TRIGGER_THRESHOLD -200
-#define DISTANCE_VARIATION_MAX 100
+#define DISTANCE_THRESHOLD_SLOW -100 //In inches. negative means distance became shorter between samples
+#define DISTANCE_THRESHOLD_FAST -50	 
+#define DISTANCE_THRESHOLD_LEAVE 100
+#define FAST_COUNT_MAX 200 // If sampling fast for too long, do a state reset
+#define FSM_RESET_DELAY_MS 5000
 
 //clock and timer defines
 #define CPU_HZ 48000000 //CPU runs at 48MHz
 #define TIMER_TRIGGER_PRESCALE 1 // don't have to use this, but 32 is the max value before we sacrifice resolution
-#define TIMER_ECHO_PRESCALE 1
+#define TIMER_ECHO_PRESCALE 1024
 #define FAST_SAMPLE_DELAY CPU_HZ/TIMER_TRIGGER_PRESCALE/10
 #define SLOW_SAMPLE_DELAY CPU_HZ/TIMER_TRIGGER_PRESCALE
 #define US_THRESHOLD CPU_HZ*50/1000 //~50ms
 
+enum State {
+  SLOW, FAST_BASE, FAST_1, FAST_2
+};
 
-int32_t duration, cm, inches, d_delta, d_new, d_old = 0;
+int32_t duration, d_delta, d_new, d_old = 0;
+float inches, cm, distance, former_distance = 0;
 int32_t person_counter = 0;
 
 int32_t timer_value = 0;
 uint8_t fast_sample_flag = 0;
 
+volatile uint32_t newUS=0, oldUS=0;
+volatile int32_t diffUS;
 
-uint16_t diffUS, newUS=0, oldUS=0;
-void ultraSonicISR(void) {
+void riseISR(void) {
+  Serial1.println("r");
   
-  Serial.println("ISR enter");
+  oldUS = ((TcCount16*)TC3)->COUNT.reg;
+//  Serial1.println(oldUS);
+
+  digitalWrite(6, HIGH);
+
+}
+
+void fallISR(void) {
+  
+  Serial1.println("f");
   newUS = ((TcCount16*)TC3)->COUNT.reg;
-  Serial.print("Timer reads: "); Serial.println(newUS);
-  if (digitalRead(ECHO)) {
-    oldUS = newUS;
-  }
-  else {
-    diffUS = newUS-oldUS / (CPU_HZ / TIMER_ECHO_PRESCALE * 1E6); //calculate microseconds gap between them
-    Serial.print("Echo duration: "); Serial.println(newUS);
-    inches = convertInches(diffUS);
-    Serial.print("Distance read: "); Serial.println(inches);
-
-//implement state machine in loop
-    if (inches < 400) {
-      setTriggerTimerCC(FAST_SAMPLE_DELAY);
-    } else {
-      setTriggerTimerCC(SLOW_SAMPLE_DELAY);
-    }
-  }
-
-    
-//  if (fast_sample_flag){
-//    if (timer_value > US_THRESHOLD)
-//      fast_sample_flag = 0;
-//      setTriggerTimerCC(SLOW_SAMPLE_DELAY);
-//      person_counter++; //can make more complex; this will cause many duplicates
-//  }
-//
-//  else {
-//    if (timer_value < US_THRESHOLD) {
-//      fast_sample_flag = 1;
-//      setTriggerTimerCC(FAST_SAMPLE_DELAY);
-//    }
-//  }
+//  Serial1.println(newUS);
 
   
-  Serial.println("ISR end");
+  digitalWrite(6, LOW);
 }
 
 void blink(uint32_t ms) {
@@ -88,24 +76,31 @@ void blink(uint32_t ms) {
  * Puts processor in sleep mode. Requires interrupt to get out, so make sure those are configured if you want to call this function
  */
 void idle_state() {
-    // Set sleep mode to deep sleep - 2 may be better.
-  PM->SLEEP.reg = 2;   //puts proc into idle mode (once __WFI is called). Only 1 and 2 have effect.
-  SCB->SCR &= ~SCB_SCR_SLEEPDEEP_Msk; // mask corresponding to deep sleep enable
 
+//  Serial1.println("EnS");
+  
+    // Set sleep mode to deep sleep - 2 may be better.
+  PM->SLEEP.reg = PM_SLEEP_IDLE_AHB;   //puts proc into idle mode (once __WFI is called). Only 1 and 2 have effect.
+  SCB->SCR &= ~SCB_SCR_SLEEPDEEP_Msk; // mask corresponding to deep sleep enable
+  //SCB->SCR |= SCB_SCR_SLEEPDEEP_Msk;
+  
 //  //Disable USB port (to disconnect correctly from host
-//  USB->DEVICE.CTRLA.reg &= ~USB_CTRLA_ENABLE;
+  USB->DEVICE.CTRLA.reg &= ~USB_CTRLA_ENABLE;
 
   SysTick->CTRL  &= ~SysTick_CTRL_TICKINT_Msk; //Thank god for internet forums: https://forum.arduino.cc/index.php?topic=601522.0
 
   //Enter sleep mode and wait for interrupt (WFI)
-//  delay(50);
+  Serial1.flush(); //Apparently we HAVE to have this for the thing to stay asleep... 
+//  delay(1);
   __DSB(); //data sync barrier; all instructions complete before moving past instruction
   __WFI(); //Wait for interrupt (or WFE to wait for event OR interrupt); puts processor in sleep state
 
-
+//  Serial1.println("ExS");
+  
   SysTick->CTRL  |= SysTick_CTRL_TICKINT_Msk;
 //  //Re-enable USB (should never get there because no wakeup interrupt is configured)
-//  USB->DEVICE.CTRLA.reg |= USB_CTRLA_ENABLE;
+  
+  USB->DEVICE.CTRLA.reg |= USB_CTRLA_ENABLE;
 }
 
 uint32_t readDistanceUS() {
@@ -116,19 +111,19 @@ uint32_t readDistanceUS() {
   digitalWrite(trigger, LOW);
 
   //  pinMode(echo, INPUT);
-  return pulseIn(ECHO, HIGH);
+  return pulseIn(ECHO_FALL, HIGH);
 }
 
 float convertInches(uint32_t us_duration) {
-  return (us_duration / 2) / 74; //convert to inches
+  return ((float) us_duration / 2) / 74; //convert to inches
 }
 
 float convertCM(uint32_t us_duration) {
-  return (us_duration / 2) / 29.1; //convert to centimeters
+  return ((float) us_duration / 2) / 29.1; //convert to centimeters
 }
 
 void setupDistanceTimer() {
-  Serial.println("Configure PWM read TCC peripheral");
+  Serial1.println("Configure PWM read TCC peripheral");
   REG_PM_APBCMASK |= PM_APBCMASK_TC3;
   REG_GCLK_CLKCTRL = (uint16_t) (GCLK_CLKCTRL_CLKEN | GCLK_CLKCTRL_GEN_GCLK0 | GCLK_CLKCTRL_ID_TCC2_TC3);
   
@@ -138,26 +133,42 @@ void setupDistanceTimer() {
   TC->CTRLA.reg &= ~TC_CTRLA_ENABLE; //disable timer so we can make changes
   while (TC->STATUS.bit.SYNCBUSY == 1); // wait for sync
 
+  TC->CTRLA.reg |= TC_CTRLA_PRESCALER_DIV1024;
+  while (TC->STATUS.bit.SYNCBUSY == 1); // wait for sync
+
   TC->CTRLA.reg |= TC_CTRLA_ENABLE;
   while (TC->STATUS.bit.SYNCBUSY == 1); // wait for sync
    
-  Serial.println("Done configuring Timer");
+  Serial1.println("Done configuring Timer");
 }
 
+void updateSampleRate(uint32_t wait) {
+  
+	TcCount32* TC = (TcCount32*) TC4;
+  TC->CTRLA.reg &= ~TC_CTRLA_ENABLE; //disable timer so we can make changes
+  while (TC->STATUS.bit.SYNCBUSY == 1); // wait for sync
+
+  TC->COUNT.reg=0; //reset
+	TC->CC[0].reg = wait; //set compare register; should actually be the TOP value
+	while (TC->STATUS.bit.SYNCBUSY == 1);
+
+  TC->CTRLA.reg |= TC_CTRLA_ENABLE;
+  while (TC->STATUS.bit.SYNCBUSY == 1); // wait for sync
+}
 
 void setTriggerTimerCC(uint32_t wait) {
-  Serial.println("Set Timer values");
+  Serial1.println("Set Timer valu1es");
 
   uint32_t compareValueWait = wait;
   //uint32_t compareValueWait = (uint32_t) CPU_HZ * 1 / TIMER_TRIGGER_PRESCALE; //set timer for 1s (old)
   uint32_t compareValueTrig = (uint32_t) CPU_HZ * 1E-5 / TIMER_TRIGGER_PRESCALE; //set a 10us pulse using a 48MHz base clock (APB)
 
-  Serial.println(compareValueWait);
-  Serial.println(compareValueTrig);
+  Serial1.println(compareValueWait);
+  Serial1.println(compareValueTrig);
   
   TcCount32* TC = (TcCount32*) TC4; //TC3 otherwise; think we need TCC to use waveform output values for pin
 
-  REG_TC3_COUNT32_COUNT = 16;
+//  REG_TC3_COUNT32_COUNT = 16;
   TC->COUNT.reg = map(TC->COUNT.reg, 0, TC->CC[0].reg, 0, compareValueWait);
   
   TC->CC[0].reg = compareValueWait; //set compare register; should actually be the TOP value
@@ -190,40 +201,199 @@ void setTriggerTimer() {
    TC->CTRLA.reg |= TC_CTRLA_ENABLE;
    while (TC->STATUS.bit.SYNCBUSY == 1); // wait for sync
 
-   Serial.println("Did we get to the end of TriggerTimer");
+}
 
-   //need to configure pin to be driven by this
+void delaySensing(uint32_t ms) {
+  Serial1.print("\\---\r\n\\\r\nFSM RESET\r\n\\\r\n\\---\r\n");
+  TcCount32* TC = (TcCount32*) TC4;
+
+  TC->CTRLA.reg &= ~TC_CTRLA_ENABLE;
+  delay(ms);
+  TC->CTRLA.reg |= TC_CTRLA_ENABLE;
+  while (TC->STATUS.bit.SYNCBUSY == 1); // wait for sync
+
+}
+
+
+enum State state = SLOW; //initial state
+enum State former_state = state; //initial state
+
+//(Mealy) finite state machine for detecting a passerby (technically automaton). 
+//	Input is the difference in distance between subsequent samples in inches
+//	Output is an increment to person_counter
+//	Future work may benefit from FIR or IIR digital filter rather than extra FSM states
+void fsm(float delta) {
+	static uint8_t fast_count; //state variable to allow reset from fast sampling
+  former_state = state;
+	bool z = false; //mealy state machine
+	Serial1.print("S:"); 	Serial1.println(state);
+  Serial1.print("Delta D: "); Serial1.println(delta);
+	
+	switch(state) {
+		case SLOW:
+      fast_count = 0;
+			if (delta < DISTANCE_THRESHOLD_SLOW) {//distance dropped, start sampling faster
+				state = FAST_BASE;
+				z = true; //Mealy
+				updateSampleRate(FAST_SAMPLE_DELAY);
+			}
+			
+			else {
+				state = SLOW; // not necessary, but operation is virtually free and helps organization
+				z = false;
+			}
+			
+			break;
+		case FAST_BASE:
+			fast_count++;
+     
+			if (fast_count >= FAST_COUNT_MAX) {
+				state = SLOW;
+				delaySensing(FSM_RESET_DELAY_MS);
+				updateSampleRate(SLOW_SAMPLE_DELAY);
+				z = false;
+				
+			}
+			else if (delta >= DISTANCE_THRESHOLD_LEAVE)  {
+				state = FAST_1;
+				z = false;
+				
+			}
+			
+			else {
+				state = FAST_BASE;
+				z = false;
+				
+			}
+			
+			break;
+			
+		case FAST_1: 
+			fast_count++;
+			
+			if (delta >= DISTANCE_THRESHOLD_FAST) {
+				state = FAST_2;
+			
+			}				
+			else {
+				state = FAST_BASE;
+				
+			}
+			
+			z = false;
+			
+			break;
+			
+		case FAST_2:
+			fast_count++;
+				
+			if (delta >= DISTANCE_THRESHOLD_FAST) {
+				state = SLOW;
+        updateSampleRate(SLOW_SAMPLE_DELAY);
+				
+			}
+			else {
+				state = FAST_BASE;
+				
+			}
+			
+			z = false;
+			
+			break;
+			
+		default:
+      Serial1.println("UNEXPECTED ERROR: STATE");
+			break;
+	}
+
+  if (state != former_state) {
+	  Serial1.print("Transition to state: ");	Serial1.println(state);
+  }
+	//respond to output variable
+	if (z) { 
+		Serial1.print("C:");
+		Serial1.println(++person_counter);
+	}
+	
+	
 }
 
 void setup() {
   // Setup Serial port
 #ifdef DEBUG_PRINT
-  while (!Serial) blink(500);
-  Serial.begin(9600);
-  Serial.println("Serial started");
+  while (!Serial1) blink(500);
+  Serial1.begin(230400);
+  Serial1.println("Serial started");
 #endif
+
+
+  pinMode(6, OUTPUT);
+
 
   pinMode(LED, OUTPUT);
   digitalWrite(LED, LOW);
 
-  Serial.println("Configure Timer");
+  pinMode(ECHO_RISE, INPUT);
+  pinMode(ECHO_FALL, INPUT);
+
+  Serial1.println("Attach ISRs");
+  attachInterrupt(digitalPinToInterrupt(ECHO_RISE), riseISR, RISING);
+  attachInterrupt(digitalPinToInterrupt(ECHO_FALL), fallISR, FALLING);
+
+  Serial1.println("Configure Timer");
   setTriggerTimer();
   setupDistanceTimer();
 
-  attachInterrupt(digitalPinToInterrupt(14), ultraSonicISR, CHANGE);
-
+  Serial1.println("Finish setup");
 }
 
+static bool isSensorReading = false;   //sensor is taking a measurement right now or not
+
 void loop() {
-  #ifdef DEBUG_PRINT
-  Serial.println("LOOP");
+
+
+//  Serial1.println("LOOP");
 
   idle_state();
-
-//do state machine
   
-  #endif
+//  delayMicroseconds(1);
+//  Serial1.println("Back in Loop");
+//  diffUS = ((newUS-oldUS)); //% 1<<16) / (CPU_HZ / TIMER_ECHO_PRESCALE * 1E6); //calculate microseconds gap between them
+//  Serial1.print("Ec: "); 
+////  Serial1.print(diffUS);
+//  diffUS = diffUS < 0 ? diffUS + 65536 : diffUS; //modulo... remainder (%) doesn't correct negative values
+//  Serial1.print("\t");  Serial1.print(diffUS);
+//  diffUS /= (CPU_HZ / TIMER_ECHO_PRESCALE / 1E6); //calc microseconds
+//  Serial1.print("\t");  Serial1.println(diffUS);
+//  
+  if (digitalRead(ECHO_RISE)) {
+    Serial1.println("R");
+    //oldUS = newUS;
+	  isSensorReading = true;
+  }
+  else {
+    Serial1.println("F\t");
+  	isSensorReading = false;
+    diffUS = (newUS-oldUS); //% 1<<16) / (CPU_HZ / TIMER_ECHO_PRESCALE * 1E6); //calculate microseconds gap between them
 
+//    Serial1.print("Echo calc: "); 
+//    Serial1.print(diffUS);
+    diffUS = diffUS < 0 ? diffUS + 65536 : diffUS;
+//    Serial1.print("\t");  Serial1.print(diffUS);
+    diffUS /= (CPU_HZ / TIMER_ECHO_PRESCALE / 1E6); //calc microseconds
+    Serial1.println(diffUS);
+    if (diffUS < -1000000) {
+      Serial1.println("Error!");
+      Serial1.print("rising: "); Serial1.println(oldUS);
+      Serial1.print("falling: "); Serial1.println(newUS);
+      while(1);
+    }
+    inches = convertInches(diffUS);
+    Serial1.print("In: "); Serial1.println(inches);
+    former_distance = distance;
+    distance = inches;
+  	fsm(distance - former_distance);
 
+  }
 
 }
