@@ -46,23 +46,23 @@ volatile uint32_t newUS=0, oldUS=0;
 volatile int32_t diffUS;
 
 void riseISR(void) {
-  Serial1.println("r");
+//  Serial1.println("r");
   
   oldUS = ((TcCount16*)TC3)->COUNT.reg;
 //  Serial1.println(oldUS);
 
-  digitalWrite(6, HIGH);
+//  digitalWrite(6, HIGH);
 
 }
 
 void fallISR(void) {
   
-  Serial1.println("f");
+//  Serial1.println("f");
   newUS = ((TcCount16*)TC3)->COUNT.reg;
 //  Serial1.println(newUS);
 
   
-  digitalWrite(6, LOW);
+//  digitalWrite(6, LOW);
 }
 
 void blink(uint32_t ms) {
@@ -77,7 +77,7 @@ void blink(uint32_t ms) {
  */
 void idle_state() {
 
-  Serial1.println("EnS");
+//  Serial1.println("EnS");
   
     // Set sleep mode to deep sleep - 2 may be better.
   PM->SLEEP.reg = PM_SLEEP_IDLE_APB;   //puts proc into idle mode (once __WFI is called). Only 1 and 2 have effect.
@@ -95,7 +95,7 @@ void idle_state() {
   __DSB(); //data sync barrier; all instructions complete before moving past instruction
   __WFI(); //Wait for interrupt (or WFE to wait for event OR interrupt); puts processor in sleep state
 
-  Serial1.println("ExS");
+//  Serial1.println("ExS");
   
   SysTick->CTRL  |= SysTick_CTRL_TICKINT_Msk;
 //  //Re-enable USB (should never get there because no wakeup interrupt is configured)
@@ -339,13 +339,6 @@ void setup() {
   REG_PM_APBCMASK &= ~(PM_APBCMASK_TC6 | PM_APBCMASK_TC7 | PM_APBCMASK_TCC0 | PM_APBCMASK_TCC1 | PM_APBCMASK_TCC2); 
   REG_PM_APBCMASK &= ~(PM_APBCMASK_ADC | PM_APBCMASK_DAC);
   Serial1.println(REG_PM_APBCMASK, HEX);
-  Serial1.println(REG_PM_APBBMASK, HEX);
-//  REG_PM_APBBMASK &= ~(PM_APBBMASK_USB | PM_APBBMASK_DMAC);
-  Serial1.println(REG_PM_APBBMASK, HEX);
-
-//  idle_state();
-//  while(1);
-
 
   Serial1.println("Attach ISRs");
   attachInterrupt(digitalPinToInterrupt(ECHO_RISE), riseISR, RISING);
@@ -365,22 +358,22 @@ void loop() {
   idle_state();
 
   if (digitalRead(ECHO_RISE)) {
-    Serial1.println("R");
+//    Serial1.println("R");
     //oldUS = newUS;
-	  isSensorReading = true;
+//	  isSensorReading = true;
   }
   else {
-    Serial1.println("F\t");
+//    Serial1.println("F\t");
   	isSensorReading = false;
     
     //calc microseconds
     diffUS = (newUS-oldUS);
     diffUS = diffUS < 0 ? diffUS + 65536 : diffUS; //do diff modulo 2^16
     diffUS /= (CPU_HZ / TIMER_ECHO_PRESCALE / 1E6); //convert timer ticks to microseconds
-    Serial1.println(diffUS);
+//    Serial1.println(diffUS);
 
     inches = convertInches(diffUS);
-    Serial1.print("In: "); Serial1.println(inches);
+    Serial1.print("Inches:   "); Serial1.println(inches);
     former_distance = distance;
     distance = inches;
   	fsm(distance - former_distance);
