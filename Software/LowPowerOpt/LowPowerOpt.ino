@@ -77,10 +77,10 @@ void blink(uint32_t ms) {
  */
 void idle_state() {
 
-//  Serial1.println("EnS");
+  Serial1.println("EnS");
   
     // Set sleep mode to deep sleep - 2 may be better.
-  PM->SLEEP.reg = PM_SLEEP_IDLE_AHB;   //puts proc into idle mode (once __WFI is called). Only 1 and 2 have effect.
+  PM->SLEEP.reg = PM_SLEEP_IDLE_APB;   //puts proc into idle mode (once __WFI is called). Only 1 and 2 have effect.
   SCB->SCR &= ~SCB_SCR_SLEEPDEEP_Msk; // mask corresponding to deep sleep enable
   //SCB->SCR |= SCB_SCR_SLEEPDEEP_Msk;
   
@@ -95,7 +95,7 @@ void idle_state() {
   __DSB(); //data sync barrier; all instructions complete before moving past instruction
   __WFI(); //Wait for interrupt (or WFE to wait for event OR interrupt); puts processor in sleep state
 
-//  Serial1.println("ExS");
+  Serial1.println("ExS");
   
   SysTick->CTRL  |= SysTick_CTRL_TICKINT_Msk;
 //  //Re-enable USB (should never get there because no wakeup interrupt is configured)
@@ -326,15 +326,26 @@ void setup() {
   Serial1.println("Serial started");
 #endif
 
-
+  //config some pins
   pinMode(6, OUTPUT);
-
-
   pinMode(LED, OUTPUT);
   digitalWrite(LED, LOW);
-
   pinMode(ECHO_RISE, INPUT);
   pinMode(ECHO_FALL, INPUT);
+
+  Serial1.println("Shut off peripherals");
+  Serial1.println(REG_PM_APBCMASK, HEX);
+  REG_PM_APBCMASK &= ~(PM_APBCMASK_SERCOM1 | PM_APBCMASK_SERCOM2 | PM_APBCMASK_SERCOM3 | PM_APBCMASK_SERCOM4 | PM_APBCMASK_SERCOM5); //Serial1 uses SERCOM0
+  REG_PM_APBCMASK &= ~(PM_APBCMASK_TC6 | PM_APBCMASK_TC7 | PM_APBCMASK_TCC0 | PM_APBCMASK_TCC1 | PM_APBCMASK_TCC2); 
+  REG_PM_APBCMASK &= ~(PM_APBCMASK_ADC | PM_APBCMASK_DAC);
+  Serial1.println(REG_PM_APBCMASK, HEX);
+  Serial1.println(REG_PM_APBBMASK, HEX);
+//  REG_PM_APBBMASK &= ~(PM_APBBMASK_USB | PM_APBBMASK_DMAC);
+  Serial1.println(REG_PM_APBBMASK, HEX);
+
+//  idle_state();
+//  while(1);
+
 
   Serial1.println("Attach ISRs");
   attachInterrupt(digitalPinToInterrupt(ECHO_RISE), riseISR, RISING);
