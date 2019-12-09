@@ -91,11 +91,13 @@ void idle_state() {
 
   //Enter sleep mode and wait for interrupt (WFI)
   Serial1.flush(); //Apparently we HAVE to have this for the thing to stay asleep... 
+  digitalWrite(13, LOW);
 //  delay(1);
   __DSB(); //data sync barrier; all instructions complete before moving past instruction
   __WFI(); //Wait for interrupt (or WFE to wait for event OR interrupt); puts processor in sleep state
 
 //  Serial1.println("ExS");
+  digitalWrite(13, HIGH);
   
   SysTick->CTRL  |= SysTick_CTRL_TICKINT_Msk;
 //  //Re-enable USB (should never get there because no wakeup interrupt is configured)
@@ -226,8 +228,8 @@ void fsm(float delta) {
 	static uint8_t fast_count; //state variable to allow reset from fast sampling
   former_state = state;
 	bool z = false; //mealy state machine
-	Serial1.print("S:"); 	Serial1.println(state);
-  Serial1.print("Delta D: "); Serial1.println(delta);
+	//Serial1.print("S:"); 	Serial1.println(state);
+  //Serial1.print("Delta D: "); Serial1.println(delta);
 	
 	switch(state) {
 		case SLOW:
@@ -307,7 +309,7 @@ void fsm(float delta) {
 	}
 
   if (state != former_state) {
-	  Serial1.print("Transition to state: ");	Serial1.println(state);
+	  //Serial1.print("Transition to state: ");	Serial1.println(state);
   }
 	//respond to output variable
 	if (z) { 
@@ -332,6 +334,7 @@ void setup() {
   digitalWrite(LED, LOW);
   pinMode(ECHO_RISE, INPUT);
   pinMode(ECHO_FALL, INPUT);
+  pinMode(13, OUTPUT);
 
   Serial1.println("Shut off peripherals");
   Serial1.println(REG_PM_APBCMASK, HEX);
@@ -373,12 +376,12 @@ void loop() {
 //    Serial1.println(diffUS);
 
     inches = convertInches(diffUS);
-    Serial1.print("Inches:   "); Serial1.println(inches);
+    Serial1.print("In:\t"); Serial1.println(inches);
     former_distance = distance;
     distance = inches;
   	fsm(distance - former_distance);
 
-    Serial1.print("PEOPLE COUNT:\t\t:"); Serial1.println(person_counter);
+    Serial1.print("COUNT:\t\t"); Serial1.println(person_counter);
   }
 
 }
